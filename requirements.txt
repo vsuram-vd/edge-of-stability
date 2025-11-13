@@ -1,0 +1,5 @@
+# Requirements for the project
+torch==2.9.1
+numpy==2.3.4
+torchvision==0.24.1
+scipy==1.16.3
