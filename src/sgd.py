@@ -25,17 +25,22 @@ def main(dataset: str, arch_id: str, loss: str, lr: float, max_steps: int,
          save_model: bool = False, seed: int = 0, abridged_size: int = 5000):
 
     ############################################################
-    #  Directory
+    #  DIRECTORY SETUP (matches gd.py exactly)
     ############################################################
-    directory = get_gd_directory(dataset, lr, arch_id, seed, "sgd", loss, beta=0.0)
+    opt = "sgd"
+    beta = 0.0  # SGD has no momentum in our experiments
+
+    directory = get_gd_directory(dataset, lr, arch_id, seed, opt, loss, beta)
     print(f"output directory: {directory}")
     makedirs(directory, exist_ok=True)
 
     ############################################################
-    #  Dataset
+    #  DATASET
     ############################################################
     train_dataset, test_dataset = load_dataset(dataset, loss)
     abridged_train = take_first(train_dataset, abridged_size)
+
+    loss_fn, acc_fn = get_loss_and_acc(loss)
 
     train_loader = DataLoader(
         train_dataset,
@@ -44,10 +49,8 @@ def main(dataset: str, arch_id: str, loss: str, lr: float, max_steps: int,
         drop_last=True
     )
 
-    loss_fn, acc_fn = get_loss_and_acc(loss)
-
     ############################################################
-    #  Model and Optimizer
+    #  MODEL + OPTIMIZER
     ############################################################
     torch.manual_seed(seed)
     network = load_architecture(arch_id, dataset).cuda()
@@ -55,7 +58,7 @@ def main(dataset: str, arch_id: str, loss: str, lr: float, max_steps: int,
     optimizer = torch.optim.SGD(network.parameters(), lr=lr)
 
     ############################################################
-    #  Storage Arrays
+    #  STORAGE (same format as gd.py)
     ############################################################
     train_loss = torch.zeros(max_steps)
     test_loss = torch.zeros(max_steps)
@@ -67,14 +70,14 @@ def main(dataset: str, arch_id: str, loss: str, lr: float, max_steps: int,
                            len(parameters_to_vector(network.parameters())))
 
     ############################################################
-    #  Training Loop
+    #  TRAINING LOOP (MINIBATCH SGD)
     ############################################################
     step = 0
     loader_iter = iter(train_loader)
 
     while step < max_steps:
 
-        # compute train & test losses each step
+        # Compute losses + accuracy each step (same as gd.py)
         train_loss[step], train_acc[step] = compute_losses(
             network, [loss_fn, acc_fn], train_dataset, batch_size
         )
@@ -88,11 +91,11 @@ def main(dataset: str, arch_id: str, loss: str, lr: float, max_steps: int,
                 network, loss_fn, abridged_train, neigs=neigs,
                 physical_batch_size=batch_size
             )
-            print("eigenvalues:", eigs[step // eig_freq])
+            print("eigenvalues: ", eigs[step // eig_freq, :])
 
-        # Save iterates (parameter projections)
+        # Save projected iterates
         if iterate_freq != -1 and step % iterate_freq == 0:
-            iterates[step // iterate_freq] = parameters_to_vector(
+            iterates[step // iterate_freq, :] = parameters_to_vector(
                 network.parameters()
             ).detach().cpu()
 
@@ -109,9 +112,9 @@ def main(dataset: str, arch_id: str, loss: str, lr: float, max_steps: int,
 
         print(f"{step}\t{train_loss[step]:.3f}\t{train_acc[step]:.3f}\t{test_loss[step]:.3f}\t{test_acc[step]:.3f}")
 
-        # -------------------------------------------
-        # SGD UPDATE
-        # -------------------------------------------
+        ########################################################
+        # SGD UPDATE (single minibatch)
+        ########################################################
         try:
             X, y = next(loader_iter)
         except StopIteration:
@@ -128,7 +131,7 @@ def main(dataset: str, arch_id: str, loss: str, lr: float, max_steps: int,
         step += 1
 
     ############################################################
-    # Save Final Files
+    #  SAVE FINAL FILES (same as gd.py)
     ############################################################
     save_files_final(directory, [
         ("eigs", eigs[:(step) // eig_freq]),
@@ -145,13 +148,13 @@ def main(dataset: str, arch_id: str, loss: str, lr: float, max_steps: int,
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train using stochastic gradient descent.")
-    parser.add_argument("dataset", type=str, choices=DATASETS, help="dataset")
-    parser.add_argument("arch_id", type=str, help="architecture id")
-    parser.add_argument("loss", type=str, choices=["ce", "mse"], help="loss function")
-    parser.add_argument("lr", type=float, help="learning rate")
-    parser.add_argument("max_steps", type=int, help="number of SGD updates")
+    parser.add_argument("dataset", type=str, choices=DATASETS)
+    parser.add_argument("arch_id", type=str)
+    parser.add_argument("loss", type=str, choices=["ce", "mse"])
+    parser.add_argument("lr", type=float)
+    parser.add_argument("max_steps", type=int)
 
-    parser.add_argument("--batch_size", type=int, default=128, help="SGD mini-batch size")
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--neigs", type=int, default=0)
     parser.add_argument("--eig_freq", type=int, default=-1)
