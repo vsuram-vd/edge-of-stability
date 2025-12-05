@@ -49,4 +49,137 @@ def main(dataset: str, arch_id: str, loss: str, lr: float, max_steps: int,
         drop_last=True,
     )
 
-    #############################################
+    ############################################################
+    # MODEL + OPTIMIZER
+    ############################################################
+    torch.manual_seed(seed)
+    network = load_architecture(arch_id, dataset).cuda()
+
+    optimizer = torch.optim.SGD(network.parameters(), lr=lr)
+
+    ############################################################
+    # STORAGE
+    ############################################################
+    train_loss = torch.zeros(max_steps)
+    test_loss  = torch.zeros(max_steps)
+    train_acc  = torch.zeros(max_steps)
+    test_acc   = torch.zeros(max_steps)
+
+    eigs = torch.zeros(max_steps // eig_freq if eig_freq > 0 else 0, neigs)
+    iterates = torch.zeros(
+        max_steps // iterate_freq if iterate_freq > 0 else 0,
+        len(parameters_to_vector(network.parameters()))
+    )
+
+    ############################################################
+    # TRAINING LOOP
+    ############################################################
+    step = 0
+    loader_iter = iter(train_loader)
+
+    while step < max_steps:
+
+        # Compute full losses each step
+        train_loss[step], train_acc[step] = compute_losses(
+            network, [loss_fn, acc_fn], train_dataset, batch_size
+        )
+        test_loss[step], test_acc[step] = compute_losses(
+            network, [loss_fn, acc_fn], test_dataset, batch_size
+        )
+
+        # Hessian eigenvalues
+        if eig_freq != -1 and step % eig_freq == 0:
+            eigs[step // eig_freq, :] = get_hessian_eigenvalues(
+                network, loss_fn, abridged_train, neigs=neigs,
+                physical_batch_size=batch_size
+            )
+            print("eigenvalues:", eigs[step // eig_freq, :])
+
+        # Save iterates
+        if iterate_freq != -1 and step % iterate_freq == 0:
+            iterates[step // iterate_freq, :] = parameters_to_vector(
+                network.parameters()
+            ).detach().cpu()
+
+        # Save partial files
+        if save_freq != -1 and step % save_freq == 0:
+            save_files(directory, [
+                ("eigs", eigs[:step // eig_freq]),
+                ("iterates", iterates[:step // iterate_freq]),
+                ("train_loss", train_loss[:step]),
+                ("test_loss", test_loss[:step]),
+                ("train_acc", train_acc[:step]),
+                ("test_acc", test_acc[:step]),
+            ])
+
+        print(f"{step}\t{train_loss[step]:.3f}\t{train_acc[step]:.3f}\t"
+              f"{test_loss[step]:.3f}\t{test_acc[step]:.3f}")
+
+        ############################################################
+        # SGD UPDATE
+        ############################################################
+        try:
+            X, y = next(loader_iter)
+        except StopIteration:
+            loader_iter = iter(train_loader)
+            X, y = next(loader_iter)
+
+        X, y = X.cuda(), y.cuda()
+
+        optimizer.zero_grad()
+        loss_batch = loss_fn(network(X), y)
+        loss_batch.backward()
+        optimizer.step()
+
+        step += 1
+
+    ############################################################
+    # SAVE FINAL RESULTS
+    ############################################################
+    save_files_final(directory, [
+        ("eigs", eigs[:step // eig_freq]),
+        ("iterates", iterates[:step // iterate_freq]),
+        ("train_loss", train_loss[:step]),
+        ("test_loss", test_loss[:step]),
+        ("train_acc", train_acc[:step]),
+        ("test_acc", test_acc[:step]),
+    ])
+
+    if save_model:
+        torch.save(network.state_dict(), f"{directory}/snapshot_final")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="SGD Training Script")
+    parser.add_argument("dataset", type=str, choices=DATASETS)
+    parser.add_argument("arch_id", type=str)
+    parser.add_argument("loss", type=str, choices=["ce", "mse"])
+    parser.add_argument("lr", type=float)
+    parser.add_argument("max_steps", type=int)
+
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--neigs", type=int, default=0)
+    parser.add_argument("--eig_freq", type=int, default=-1)
+    parser.add_argument("--iterate_freq", type=int, default=-1)
+    parser.add_argument("--save_freq", type=int, default=-1)
+    parser.add_argument("--abridged_size", type=int, default=5000)
+    parser.add_argument("--save_model", type=bool, default=False)
+
+    args = parser.parse_args()
+
+    main(
+        dataset=args.dataset,
+        arch_id=args.arch_id,
+        loss=args.loss,
+        lr=args.lr,
+        max_steps=args.max_steps,
+        batch_size=args.batch_size,
+        neigs=args.neigs,
+        eig_freq=args.eig_freq,
+        iterate_freq=args.iterate_freq,
+        save_freq=args.save_freq,
+        save_model=args.save_model,
+        seed=args.seed,
+        abridged_size=args.abridged_size
+    )
