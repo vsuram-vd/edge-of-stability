@@ -324,3 +324,84 @@ The dashed line is the prediction of $2 / \eta$.
 
 ## Update (December 2025) - Performed SGD on different neural nets with various configurations to check EOS of SGD.
 
+We implemented a pure mini-batch SGD training pipeline in sgd.py that mirrors the original GD logging and saving structure. The goal of this update is to evaluate whether the Edge-of-Stability (EOS) behavior persists under stochastic optimization across multiple network architectures and configurations
+
+To train the fully-connected tanh network using SGD with learning rate $\eta$ while recording sharpness every $k$ iterations, run:
+
+```
+python src/sgd.py cifar10-5k fc-tanh mse 0.01 20000 \
+  --batch_size 32 \
+  --loss_goal 0.05 \
+  --neigs 4 \
+  --eig_freq 5 \
+  --seed 0
+```
+
+This command will create an output directory of the form:
+
+results/cifar10-5k/fc-tanh/seed_0/mse/sgd/lr_0.01_batch_32
+
+and will save training/testing curves and eigenvalue logs (when enabled).
+
+SGD on other network variants
+To train a different architecture (example: ReLU version), use the same command pattern:
+
+```
+python src/sgd.py cifar10-5k fc-relu mse 0.01 20000 \
+  --batch_size 32 \
+  --loss_goal 0.05 \
+  --neigs 4 \
+  --eig_freq 5 \
+  --seed 0
+```
+
+
+To Check the plots of Loss, Accuracy and sharpness use the following code 
+
+```
+import torch
+import matplotlib.pyplot as plt
+import sys
+from os import environ
+
+sys.path.append("src")
+import sgd
+
+dataset = "cifar10-5k"
+arch = "fc-tanh"
+loss = "mse"
+seed = 0
+
+sgd_lr = 0.01
+batch_sz = 32
+sgd_eig_freq = 100  # must match your SGD run
+
+sgd_directory = sgd.get_sgd_directory(dataset, sgd_lr, arch, seed, loss, batch_sz)
+
+sgd_train_loss = torch.load(f"{sgd_directory}/train_loss_final")
+sgd_train_acc  = torch.load(f"{sgd_directory}/train_acc_final")
+sgd_sharpness  = torch.load(f"{sgd_directory}/eigs_final")[:, 0]
+
+plt.figure(figsize=(5, 5), dpi=100)
+
+plt.subplot(3, 1, 1)
+plt.plot(sgd_train_loss)
+plt.title("SGD train loss")
+
+plt.subplot(3, 1, 2)
+plt.plot(sgd_train_acc)
+plt.title("SGD train accuracy")
+
+plt.subplot(3, 1, 3)
+plt.scatter(torch.arange(len(sgd_sharpness)) * sgd_eig_freq, sgd_sharpness, s=5)
+plt.axhline(2. / sgd_lr, linestyle='dotted')
+plt.title("SGD sharpness")
+plt.xlabel("iteration")
+
+plt.tight_layout()
+plt.show()
+```
+
+
+
+
