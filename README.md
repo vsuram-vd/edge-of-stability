@@ -402,6 +402,12 @@ plt.tight_layout()
 plt.show()
 ```
 
+Above code generates the below plot:
+![demo](figures/sgd.png)
+
+
+
+
 
 
 
