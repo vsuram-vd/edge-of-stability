@@ -320,3 +320,7 @@ python src/adam.py cifar10-5k fc-tanh mse 5e-5 20000 --loss_goal 0.05 --neigs 4 
 I ran this code for step sizes 5e-6, 1e-5, 2e-5, 5e-5 and then generated the following plot of train loss and preconditioned sharpness:
 ![demo](figures/rmsprop.png)
 The dashed line is the prediction of $2 / \eta$.
+
+
+## Update (December 2025) - Performed SGD on different neural nets with various configurations to check EOS of SGD.
+
